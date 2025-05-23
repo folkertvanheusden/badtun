@@ -12,12 +12,16 @@ int main(int argc, char *argv[])
 {
 	std::string psk            = "Dit is een test!";
 	auto        tun_parameters = open_tun("badtun");
-	int         udp_fd         = listen_on_udp_port(4001);
+	if (tun_parameters.has_value() == false)
+		return 1;
+	int         udp_fd         = listen_on_udp_port(4100);
+	if (udp_fd == -1)
+		return 2;
 	pollfd      fds[]          = { { tun_parameters.value().fd, POLLIN, 0 }, { udp_fd, POLLIN, 0 } };
 
 	sockaddr_in target { };
         target.sin_family = AF_INET;
-        target.sin_port   = htons(4001);
+        target.sin_port   = htons(4100);
 	inet_aton("94.142.246.161", &target.sin_addr);
 
         DES_cblock       key;
@@ -40,9 +44,9 @@ int main(int argc, char *argv[])
 		if (fds[0].revents) {
 			uint8_t buffer_in [65536] { };
 			uint8_t buffer_out[65536] { };
-			int     rc     = recv(tun_parameters.value().fd, buffer_in, sizeof buffer_in, 0);
+			int     rc     = read(tun_parameters.value().fd, buffer_in, sizeof buffer_in);
 			if (rc <= 0)
-				continue;
+				break;
 			for(size_t o=0; o<rc; o += 8) {
 				uint8_t input[8] { };
 				memcpy(input, &buffer_in, std::min(sizeof input, rc - o));
