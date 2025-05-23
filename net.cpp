@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
-#include <format>
 #include <netdb.h>
 #include <optional>
 #include <poll.h>
@@ -157,13 +156,13 @@ bool read_blocking(const int fd, uint8_t *const to, const size_t len)
 
 int listen_on_udp_port(const int port)
 {
-	int           fd            = socket(PF_INET, SOCK_DGRAM, 0);
+	int           fd            = socket(AF_INET, SOCK_DGRAM, 0);
 	sockaddr_in   server_addr { };
 	server_addr.sin_family      = AF_INET;
 	server_addr.sin_addr.s_addr = INADDR_ANY;
 	server_addr.sin_port        = htons(port);
 
-	if (bind(fd, reinterpret_cast<const sockaddr *>(&server_addr), sizeof server_addr) == 0) {
+	if (bind(fd, reinterpret_cast<const sockaddr *>(&server_addr), sizeof server_addr) == -1) {
 		DOLOG(logger::ll_error, "listen_on_udp_port(%d): %s", port, strerror(errno));
 		close(fd);
 		return -1;
