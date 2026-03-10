@@ -41,7 +41,7 @@ bool invoke_if_ioctl(const std::string & dev_name, const int ioctl_nr, ifreq *co
 
 		bool ok = true;
 		if (ioctl(temp_fd, ioctl_nr, p) == -1) {
-			DOLOG(logger::ll_error, "aoe(%s): ioctl %d failed: %s", dev_name.c_str(), ioctl_nr, strerror(errno));
+			DOLOG(logger::ll_error, "battun(%s): ioctl %d failed: %s", dev_name.c_str(), ioctl_nr, strerror(errno));
 			ok = false;
 		}
 
@@ -75,7 +75,7 @@ std::optional<net_interface_parameters_t> open_tun(const std::string & dev_name)
 		set_ifr_name(&ifr_tap, dev_name);
 
 		if (ioctl(fd, TUNSETIFF, &ifr_tap) == -1) {
-			DOLOG(logger::ll_error, "aoe(%s): ioctl TUNSETIFF failed", dev_name.c_str());
+			DOLOG(logger::ll_error, "battun(%s): ioctl TUNSETIFF failed", dev_name.c_str());
 			break;
 		}
 
@@ -92,19 +92,19 @@ std::optional<net_interface_parameters_t> open_tun(const std::string & dev_name)
 			break;
 
 		parameters.mtu_size = ifr_tap.ifr_mtu;
-		DOLOG(logger::ll_info, "aoe(%s): MTU size: %d bytes", dev_name.c_str(), parameters.mtu_size);
+		DOLOG(logger::ll_info, "battun(%s): MTU size: %d bytes", dev_name.c_str(), parameters.mtu_size);
 
 		if (invoke_if_ioctl(dev_name, SIOCGIFHWADDR, &ifr_tap) == false)
 			break;
 
 		if (ifr_tap.ifr_hwaddr.sa_family != ARPHRD_ETHER) {
-			DOLOG(logger::ll_error, "aoe(%s): unexpected adress family %d", dev_name.c_str(), ifr_tap.ifr_hwaddr.sa_family);
+			DOLOG(logger::ll_error, "battun(%s): unexpected adress family %d", dev_name.c_str(), ifr_tap.ifr_hwaddr.sa_family);
 			break;
 		}
 
 		memcpy(parameters.mac_address, ifr_tap.ifr_hwaddr.sa_data, 6);
 
-		DOLOG(logger::ll_info, "aoe(%s): MAC address: %02x:%02x:%02x:%02x:%02x:%02x", dev_name.c_str(),
+		DOLOG(logger::ll_info, "battun(%s): MAC address: %02x:%02x:%02x:%02x:%02x:%02x", dev_name.c_str(),
 			parameters.mac_address[0], parameters.mac_address[1], parameters.mac_address[2],
 			parameters.mac_address[3], parameters.mac_address[4], parameters.mac_address[5]);
 
@@ -157,13 +157,13 @@ bool read_blocking(const int fd, uint8_t *const to, const size_t len)
 
 int listen_on_udp_port(const int port)
 {
-	int           fd            = socket(PF_INET, SOCK_DGRAM, 0);
+	int           fd            = socket(AF_INET, SOCK_DGRAM, 0);
 	sockaddr_in   server_addr { };
 	server_addr.sin_family      = AF_INET;
 	server_addr.sin_addr.s_addr = INADDR_ANY;
 	server_addr.sin_port        = htons(port);
 
-	if (bind(fd, reinterpret_cast<const sockaddr *>(&server_addr), sizeof server_addr) == 0) {
+	if (bind(fd, reinterpret_cast<const sockaddr *>(&server_addr), sizeof server_addr) == -1) {
 		DOLOG(logger::ll_error, "listen_on_udp_port(%d): %s", port, strerror(errno));
 		close(fd);
 		return -1;

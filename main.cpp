@@ -2,7 +2,8 @@
 #include <poll.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <openssl/des.h>
+#include <openssl/aes.h>
+#include <openssl/sha.h>
 #include <sys/socket.h>
 
 #include "net.h"
@@ -20,15 +21,16 @@ int main(int argc, char *argv[])
         target.sin_port   = htons(4001);
 	inet_aton("94.142.246.161", &target.sin_addr);
 
-        DES_cblock       key;
-        DES_key_schedule sched_encrypt;
-        DES_key_schedule sched_decrypt;
-        uint8_t          ivec_encrypt[8] { 0 };
-        uint8_t          ivec_decrypt[8] { 0 };
+	unsigned char key[SHA256_DIGEST_LENGTH] { };
+	SHA256_CTX sha256;
+	SHA256_Init(&sha256);
+	SHA256_Update(&sha256, psk.data(), psk.size());
+	SHA256_Final(key, &sha256);
 
-	DES_string_to_key(psk.c_str(), &key);
-	DES_set_key_checked(&key, &sched_encrypt);
-	DES_set_key_checked(&key, &sched_decrypt);
+        AES_KEY aes_key_e;
+	AES_set_encrypt_key(key, SHA256_DIGEST_LENGTH * 8, &aes_key_e);
+        AES_KEY aes_key_d;
+	AES_set_decrypt_key(key, SHA256_DIGEST_LENGTH * 8, &aes_key_d);
 
 	for(;;) {
 		int rc = poll(fds, 2, 100);
@@ -38,29 +40,31 @@ int main(int argc, char *argv[])
 			break;
 
 		if (fds[0].revents) {
+			uint8_t ivec[16]          { };
 			uint8_t buffer_in [65536] { };
 			uint8_t buffer_out[65536] { };
 			int     rc     = recv(tun_parameters.value().fd, buffer_in, sizeof buffer_in, 0);
 			if (rc <= 0)
 				continue;
-			for(size_t o=0; o<rc; o += 8) {
-				uint8_t input[8] { };
+			for(size_t o=0; o<rc; o += 16) {
+				uint8_t input[16] { };
 				memcpy(input, &buffer_in, std::min(sizeof input, rc - o));
-				DES_ncbc_encrypt(input, &buffer_out[o], 8, &sched_encrypt, &ivec_encrypt, DES_ENCRYPT);
+				AES_cbc_encrypt(input, &buffer_out[o], 16, &aes_key_e, ivec, AES_ENCRYPT);
 			}
 
 			sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target), sizeof target);
 		}
 
 		if (fds[1].revents) {
+			uint8_t ivec[16]          { };
 			uint8_t buffer_in [65536] { };
 			uint8_t buffer_out[65536] { };
 			int     rc     = recv(udp_fd, buffer_in, sizeof buffer_in, 0);
 			if (rc <= 0)
 				continue;
-			for(size_t o=0; o<rc; o += 8) {
-				uint8_t input[8] { };
-				DES_ncbc_encrypt(&buffer_in[o], &buffer_out[o], 8, &sched_decrypt, &ivec_decrypt, DES_DECRYPT);
+			for(size_t o=0; o<rc; o += 16) {
+				uint8_t input[16] { };
+				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], 16, &aes_key_d, ivec, AES_DECRYPT);
 			}
 
 			write_blocking(tun_parameters.value().fd, buffer_out, rc);
