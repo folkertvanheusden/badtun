@@ -1,4 +1,4 @@
-This is a VPN.
+This is VPN software (like openvpn, wireguard, ipsec, etc).
 Do not use.
 
 
