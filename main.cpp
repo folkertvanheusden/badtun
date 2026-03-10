@@ -37,40 +37,35 @@ int main(int argc, char *argv[])
 	AES_set_decrypt_key(key, SHA256_DIGEST_LENGTH * 8, &aes_key_d);
 
 	for(;;) {
-		int rc = poll(fds, 2, 100);
+		int rc = poll(fds, 2, -1);
 		if (rc == 0)
 			continue;
 		if (rc == -1)
 			break;
 
 		if (fds[0].revents) {
-			uint8_t ivec[16]          { };
-			uint8_t buffer_in [65536] { };
-			uint8_t buffer_out[65536] { };
+			uint8_t ivec[16]         { };
+			uint8_t buffer_in [1600] { };
+			uint8_t buffer_out[1600] { };
 			int     rc     = read(tun_parameters.value().fd, buffer_in, sizeof buffer_in);
 			if (rc == -1)
 				break;
 
-			for(size_t o=0; o<rc; o += 16) {
-				uint8_t input[16] { };
-				memcpy(input, &buffer_in, std::min(sizeof input, rc - o));
-				AES_cbc_encrypt(input, &buffer_out[o], 16, &aes_key_e, ivec, AES_ENCRYPT);
-			}
+			for(size_t o=0; o<rc; o += 16)
+				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], 16, &aes_key_e, ivec, AES_ENCRYPT);
 
 			sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target), sizeof target);
 		}
 
 		if (fds[1].revents) {
-			uint8_t ivec[16]          { };
-			uint8_t buffer_in [65536] { };
-			uint8_t buffer_out[65536] { };
+			uint8_t ivec[16]         { };
+			uint8_t buffer_in [1600] { };
+			uint8_t buffer_out[1600] { };
 			int     rc     = recv(udp_fd, buffer_in, sizeof buffer_in, 0);
 			if (rc == -1)
 				break;
-			for(size_t o=0; o<rc; o += 16) {
-				uint8_t input[16] { };
+			for(size_t o=0; o<rc; o += 16)
 				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], 16, &aes_key_d, ivec, AES_DECRYPT);
-			}
 
 			write_blocking(tun_parameters.value().fd, buffer_out, rc);
 		}
