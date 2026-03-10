@@ -11,7 +11,7 @@
 
 int main(int argc, char *argv[])
 {
-	std::string psk            = "Dit is een test!";
+	std::string psk            = "Dit is een test!";  // you may want to change this
 	auto        tun_parameters = open_tun("badtun");
 	if (tun_parameters.has_value() == false)
 		return 1;
@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
 	sockaddr_in target { };
         target.sin_family = AF_INET;
         target.sin_port   = htons(4100);
-	inet_aton("94.142.246.161", &target.sin_addr);
+	inet_aton("94.142.246.161", &target.sin_addr);  // this also won't make any sense
 
 	unsigned char key[SHA256_DIGEST_LENGTH] { };
 	SHA256_CTX sha256;
