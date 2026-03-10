@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 			for(size_t o=0; o<rc + 2; o += 16)
 				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], 16, &aes_key_e, ivec, AES_ENCRYPT);
 
-			sendto(udp_fd, buffer_out, (rc + 15) & ~16, 0, reinterpret_cast<const sockaddr *>(&target), sizeof target);
+			sendto(udp_fd, buffer_out, (rc + 15) & ~15, 0, reinterpret_cast<const sockaddr *>(&target), sizeof target);
 		}
 
 		if (fds[1].revents) {
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
 			int     rc       = recv(udp_fd, buffer_in, sizeof buffer_in, 0);
 			if (rc == -1)
 				break;
-			if ((rc & ~16) != rc)
+			if ((rc & ~15) != rc)
 				continue;
 			for(size_t o=0; o<rc; o += 16)
 				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], 16, &aes_key_d, ivec, AES_DECRYPT);
