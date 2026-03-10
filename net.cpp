@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
-#include <format>
 #include <netdb.h>
 #include <optional>
 #include <poll.h>

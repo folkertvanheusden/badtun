@@ -13,12 +13,16 @@ int main(int argc, char *argv[])
 {
 	std::string psk            = "Dit is een test!";
 	auto        tun_parameters = open_tun("badtun");
-	int         udp_fd         = listen_on_udp_port(4001);
+	if (tun_parameters.has_value() == false)
+		return 1;
+	int         udp_fd         = listen_on_udp_port(4100);
+	if (udp_fd == -1)
+		return 2;
 	pollfd      fds[]          = { { tun_parameters.value().fd, POLLIN, 0 }, { udp_fd, POLLIN, 0 } };
 
 	sockaddr_in target { };
         target.sin_family = AF_INET;
-        target.sin_port   = htons(4001);
+        target.sin_port   = htons(4100);
 	inet_aton("94.142.246.161", &target.sin_addr);
 
 	unsigned char key[SHA256_DIGEST_LENGTH] { };
@@ -43,9 +47,10 @@ int main(int argc, char *argv[])
 			uint8_t ivec[16]          { };
 			uint8_t buffer_in [65536] { };
 			uint8_t buffer_out[65536] { };
-			int     rc     = recv(tun_parameters.value().fd, buffer_in, sizeof buffer_in, 0);
-			if (rc <= 0)
-				continue;
+			int     rc     = read(tun_parameters.value().fd, buffer_in, sizeof buffer_in);
+			if (rc == -1)
+				break;
+
 			for(size_t o=0; o<rc; o += 16) {
 				uint8_t input[16] { };
 				memcpy(input, &buffer_in, std::min(sizeof input, rc - o));
@@ -60,8 +65,8 @@ int main(int argc, char *argv[])
 			uint8_t buffer_in [65536] { };
 			uint8_t buffer_out[65536] { };
 			int     rc     = recv(udp_fd, buffer_in, sizeof buffer_in, 0);
-			if (rc <= 0)
-				continue;
+			if (rc == -1)
+				break;
 			for(size_t o=0; o<rc; o += 16) {
 				uint8_t input[16] { };
 				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], 16, &aes_key_d, ivec, AES_DECRYPT);
