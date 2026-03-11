@@ -13,9 +13,8 @@
 #include "net.h"
 
 
-void encrypt_aes_256(const uint8_t *const input, const int input_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const out, int *const out_len)
+void encrypt_aes_256(EVP_CIPHER_CTX *const ctx, const uint8_t *const input, const int input_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const out, int *const out_len)
 {
-	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
 
 	int len           = 0;
@@ -24,13 +23,10 @@ void encrypt_aes_256(const uint8_t *const input, const int input_len, const uint
 
 	EVP_EncryptFinal_ex(ctx, out + len, &len);
 	(*out_len) += len;
-
-	EVP_CIPHER_CTX_free(ctx);
 }
 
-void decrypt_aes_256(const uint8_t *const input, const int input_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const out, int *const out_len)
+void decrypt_aes_256(EVP_CIPHER_CTX *const ctx, const uint8_t *const input, const int input_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const out, int *const out_len)
 {
-	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
 
 	int len     = 0;
@@ -39,8 +35,6 @@ void decrypt_aes_256(const uint8_t *const input, const int input_len, const uint
 
 	EVP_DecryptFinal_ex(ctx, out + len, &len);
 	(*out_len) += len;
-
-	EVP_CIPHER_CTX_free(ctx);
 }
 
 void help()
@@ -117,6 +111,9 @@ int main(int argc, char *argv[])
 	SHA256_Update(&sha256, psk.data(), psk.size());
 	SHA256_Final(key, &sha256);
 
+	EVP_CIPHER_CTX *e_ctx = EVP_CIPHER_CTX_new();
+	EVP_CIPHER_CTX *d_ctx = EVP_CIPHER_CTX_new();
+
 	for(;;) {
 		int rc = poll(fds, 2, -1);
 		if (rc <= 0)
@@ -137,7 +134,7 @@ int main(int argc, char *argv[])
 			buffer_in[1] = rc;
 
 			int rc_out = 0;
-			encrypt_aes_256(buffer_in, rc + 2, key, ivec, buffer_out, &rc_out);
+			encrypt_aes_256(e_ctx, buffer_in, rc + 2, key, ivec, buffer_out, &rc_out);
 
 			if (target_addr_len == 0)
 				fprintf(stderr, "Peer not seen yet, dropping packet\n");
@@ -164,7 +161,7 @@ int main(int argc, char *argv[])
 			if (rc == -1)
 				return 5;
 			int out_len = 0;
-			decrypt_aes_256(buffer_in, rc, key, ivec, buffer_out, &out_len);
+			decrypt_aes_256(d_ctx, buffer_in, rc, key, ivec, buffer_out, &out_len);
 
 #if !defined(NDEBUG)
 			for(int i=0; i<out_len; i++)
@@ -184,6 +181,9 @@ int main(int argc, char *argv[])
 	close(udp_fd);
 
 	close(tun_parameters.value().fd);
+
+	EVP_CIPHER_CTX_free(d_ctx);
+	EVP_CIPHER_CTX_free(e_ctx);
 
 	return 0;
 }
