@@ -74,6 +74,9 @@ int main(int argc, char *argv[])
         target_addr.sin_port   = htons(local_port);  // will be overwritten when a client packet is received (in server mode)
 	inet_aton(remote_addr.c_str(), &target_addr.sin_addr);
 
+	if (!is_server)
+		target_addr_len = sizeof target_addr;
+
 	constexpr const int key_size = SHA256_DIGEST_LENGTH;
 
 	unsigned char key[SHA256_DIGEST_LENGTH] { };  // 32 bytes
