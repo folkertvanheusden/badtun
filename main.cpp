@@ -13,32 +13,32 @@
 #include "net.h"
 
 
-void encrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const plaintext)
+void encrypt_aes_256(const uint8_t *const input, const int input_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const out, int *const out_len)
 {
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
 
 	int len           = 0;
-	EVP_EncryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
-	int plaintext_len = len;
+	EVP_EncryptUpdate(ctx, out, &len, input, input_len);
+	*out_len = len;
 
-	EVP_EncryptFinal_ex(ctx, plaintext + len, &len);
-	plaintext_len += len;
+	EVP_EncryptFinal_ex(ctx, out + len, &len);
+	(*out_len) += len;
 
 	EVP_CIPHER_CTX_free(ctx);
 }
 
-void decrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const plaintext)
+void decrypt_aes_256(const uint8_t *const input, const int input_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const out, int *const out_len)
 {
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
 
-	int len           = 0;
-	EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
-	int plaintext_len = len;
+	int len     = 0;
+	EVP_DecryptUpdate(ctx, out, &len, input, input_len);
+	*out_len    = len;
 
-	EVP_DecryptFinal_ex(ctx, plaintext + len, &len);
-	plaintext_len += len;
+	EVP_DecryptFinal_ex(ctx, out + len, &len);
+	(*out_len) += len;
 
 	EVP_CIPHER_CTX_free(ctx);
 }
@@ -127,21 +127,26 @@ int main(int argc, char *argv[])
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc     = read(tun_parameters.value().fd, &buffer_in[2], sizeof(buffer_in) - 2);
-			// printf("%d bytes from eth dev\n", rc);
+#if !defined(NDEBUG)
+			printf("%d bytes from eth dev\n", rc);
+#endif
 			if (rc == -1)
 				return 4;
 
 			buffer_in[0] = rc >> 8;
 			buffer_in[1] = rc;
 
-			encrypt_aes_256(buffer_in, rc + 2, key, ivec, buffer_out);
+			int rc_out = 0;
+			encrypt_aes_256(buffer_in, rc + 2, key, ivec, buffer_out, &rc_out);
 
 			if (target_addr_len == 0)
 				fprintf(stderr, "Peer not seen yet, dropping packet\n");
-			else if (sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target_addr), target_addr_len) == -1)
+			else if (sendto(udp_fd, buffer_out, rc_out, 0, reinterpret_cast<const sockaddr *>(&target_addr), target_addr_len) == -1)
 				fprintf(stderr, "Failed transmitting packet: %s\n", strerror(errno));
 			else {
-				// printf("Transmitted %d bytes\n", rc);
+#if !defined(NDEBUG)
+				printf("Transmitted %d bytes\n", rc);
+#endif
 			}
 		}
 
@@ -153,10 +158,17 @@ int main(int argc, char *argv[])
 			int     rc = is_server ? recvfrom(udp_fd, buffer_in, sizeof buffer_in, 0,
 							 reinterpret_cast<sockaddr *>(&target_addr), &target_addr_len) :
 						 recv    (udp_fd, buffer_in, sizeof buffer_in, 0);
-			// printf("%d bytes from peer %s\n", rc, inet_ntoa(target_addr.sin_addr));
+#if !defined(NDEBUG)
+			printf("%d bytes from peer %s\n", rc, inet_ntoa(target_addr.sin_addr));
+#endif
 			if (rc == -1)
 				return 5;
-			decrypt_aes_256(buffer_in, rc, key, ivec, buffer_out);
+			int out_len = 0;
+			decrypt_aes_256(buffer_in, rc, key, ivec, buffer_out, &out_len);
+
+			for(int i=0; i<out_len; i++)
+				printf(" %c", buffer_out[i] > 32 && buffer_out[i] < 127 ? buffer_out[i] : '.');
+			printf("\n");
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
 			if (real_len > sizeof buffer_out - 2) {
