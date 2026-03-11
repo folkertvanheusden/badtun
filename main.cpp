@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
 
 	constexpr const int key_size = SHA256_DIGEST_LENGTH;
 
-	unsigned char key[SHA256_DIGEST_LENGTH] { };  // 32 bytes
+	unsigned char key[key_size] { };  // 32 bytes
 	SHA256_CTX sha256;
 	SHA256_Init(&sha256);
 	SHA256_Update(&sha256, psk.data(), psk.size());
@@ -136,7 +136,6 @@ int main(int argc, char *argv[])
 
 			encrypt_aes_256(buffer_in, rc + 2, key, ivec, buffer_out);
 
-			rc = (rc + key_size - 1) & ~(key_size - 1);
 			if (target_addr_len == 0)
 				fprintf(stderr, "Peer not seen yet, dropping packet\n");
 			else if (sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target_addr), target_addr_len) == -1)
@@ -157,10 +156,6 @@ int main(int argc, char *argv[])
 			// printf("%d bytes from peer %s\n", rc, inet_ntoa(target_addr.sin_addr));
 			if (rc == -1)
 				return 5;
-			if ((rc & ~(key_size - 1)) != rc) {
-				printf("invalid packet size (%d / %d)\n", rc & ~(key_size - 1), rc);
-				continue;
-			}
 			decrypt_aes_256(buffer_in, rc, key, ivec, buffer_out);
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
