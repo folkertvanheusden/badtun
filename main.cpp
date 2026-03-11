@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc     = read(tun_parameters.value().fd, &buffer_in[2], sizeof(buffer_in) - 2);
-			printf("%d bytes from eth dev\n", rc);
+			// printf("%d bytes from eth dev\n", rc);
 			if (rc == -1)
 				return 4;
 
@@ -115,8 +115,9 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Peer not seen yet, dropping packet\n");
 			else if (sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target_addr), target_addr_len) == -1)
 				fprintf(stderr, "Failed transmitting packet: %s\n", strerror(errno));
-			else
-				printf("Transmitted %d bytes\n", rc);
+			else {
+				// printf("Transmitted %d bytes\n", rc);
+			}
 		}
 
 		if (fds[1].revents) {
@@ -127,7 +128,7 @@ int main(int argc, char *argv[])
 			int     rc = is_server ? recvfrom(udp_fd, buffer_in, sizeof buffer_in, 0,
 							 reinterpret_cast<sockaddr *>(&target_addr), &target_addr_len) :
 						 recv    (udp_fd, buffer_in, sizeof buffer_in, 0);
-			printf("%d bytes from peer %s\n", rc, inet_ntoa(target_addr.sin_addr));
+			// printf("%d bytes from peer %s\n", rc, inet_ntoa(target_addr.sin_addr));
 			if (rc == -1)
 				return 5;
 			if ((rc & ~(key_size - 1)) != rc) {
