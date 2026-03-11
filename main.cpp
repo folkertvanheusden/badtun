@@ -1,4 +1,5 @@
 #include <cstring>
+#include <errno.h>
 #include <getopt.h>
 #include <poll.h>
 #include <unistd.h>
@@ -22,10 +23,10 @@ void help()
 
 int main(int argc, char *argv[])
 {
-	std::string psk            = "Dit is een test!";  // you may want to change this (use -p)
+	std::string psk;  // you may want to change this (use -p)
 	std::string interface_name = "badtun";
 	int         local_port     = 4100;
-	std::string remote_addr    = "94.142.246.161";
+	std::string remote_addr    = "0.0.0.0";
 	bool        is_server      = true;
 
 	int c = -1;
@@ -50,6 +51,15 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (is_server)
+		printf("server mode\n");
+	printf("listening on port %d\n", local_port);
+
+	if (psk.empty()) {
+		fprintf(stderr, "Please set a psk\n");
+		return 127;
+	}
+
 	auto   tun_parameters = open_tun(interface_name);
 	if (tun_parameters.has_value() == false)
 		return 1;
@@ -58,10 +68,11 @@ int main(int argc, char *argv[])
 		return 2;
 	pollfd fds[]          = { { tun_parameters.value().fd, POLLIN, 0 }, { udp_fd, POLLIN, 0 } };
 
-	sockaddr_in target { };
-        target.sin_family = AF_INET;
-        target.sin_port   = htons(local_port);  // will be overwritten when a client packet is received (in server mode)
-	inet_aton(remote_addr.c_str(), &target.sin_addr);
+	sockaddr_in target_addr     { };
+	socklen_t   target_addr_len { };
+        target_addr.sin_family = AF_INET;
+        target_addr.sin_port   = htons(local_port);  // will be overwritten when a client packet is received (in server mode)
+	inet_aton(remote_addr.c_str(), &target_addr.sin_addr);
 
 	constexpr const int key_size = SHA256_DIGEST_LENGTH;
 
@@ -76,9 +87,6 @@ int main(int argc, char *argv[])
         AES_KEY aes_key_d;
 	AES_set_decrypt_key(key, key_size * 8, &aes_key_d);
 
-	sockaddr_in peer_addr     {   };
-	socklen_t   peer_addr_len { 0 };
-
 	for(;;) {
 		int rc = poll(fds, 2, -1);
 		if (rc <= 0)
@@ -89,6 +97,7 @@ int main(int argc, char *argv[])
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc     = read(tun_parameters.value().fd, &buffer_in[2], sizeof(buffer_in) - 2);
+			printf("%d bytes from eth dev\n", rc);
 			if (rc == -1)
 				return 4;
 
@@ -99,29 +108,37 @@ int main(int argc, char *argv[])
 				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], key_size, &aes_key_e, ivec, AES_ENCRYPT);
 
 			rc = (rc + key_size - 1) & ~(key_size - 1);
-			if (is_server)
-				sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&peer_addr), sizeof peer_addr_len);
+			if (target_addr_len == 0)
+				fprintf(stderr, "Peer not seen yet, dropping packet\n");
+			else if (sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target_addr), target_addr_len) == -1)
+				fprintf(stderr, "Failed transmitting packet: %s\n", strerror(errno));
 			else
-				sendto(udp_fd, buffer_out, rc, 0, reinterpret_cast<const sockaddr *>(&target   ), sizeof target       );
+				printf("Transmitted %d bytes\n", rc);
 		}
 
 		if (fds[1].revents) {
+			target_addr_len = { sizeof target_addr };
 			uint8_t ivec[key_size]   { };
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
-			int     rc       = is_server == false ? recv    (udp_fd, buffer_in, sizeof buffer_in, 0) :
-       								recvfrom(udp_fd, buffer_in, sizeof buffer_in, 0,
-										reinterpret_cast<sockaddr *>(&peer_addr), &peer_addr_len);
+			int     rc = is_server ? recvfrom(udp_fd, buffer_in, sizeof buffer_in, 0,
+							 reinterpret_cast<sockaddr *>(&target_addr), &target_addr_len) :
+						 recv    (udp_fd, buffer_in, sizeof buffer_in, 0);
+			printf("%d bytes from peer %s\n", rc, inet_ntoa(target_addr.sin_addr));
 			if (rc == -1)
 				return 5;
-			if ((rc & ~(key_size - 1)) != rc)
+			if ((rc & ~(key_size - 1)) != rc) {
+				printf("invalid packet size (%d / %d)\n", rc & ~(key_size - 1), rc);
 				continue;
+			}
 			for(size_t o=0; o<rc; o += key_size)
 				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], key_size, &aes_key_d, ivec, AES_DECRYPT);
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
-			if (real_len > sizeof buffer_out - 2)
+			if (real_len > sizeof buffer_out - 2) {
+				printf("invalid packet length (%zd / %zd)\n", real_len, sizeof buffer_out - 2);
 				continue;
+			}
 			write_blocking(tun_parameters.value().fd, &buffer_out[2], real_len);
 		}
 	}
