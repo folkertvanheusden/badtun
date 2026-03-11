@@ -1,7 +1,7 @@
 # (C) 2024 by folkert van heusden <mail@vanheusden.com>, released under Apache License v2.0
 cmake_minimum_required(VERSION 3.9.4)
 
-project(badtun VERSION 0.1)
+project(badtun VERSION 0.5)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)

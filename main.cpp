@@ -5,11 +5,43 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <openssl/aes.h>
+#include <openssl/evp.h>
+#include <openssl/modes.h>
 #include <openssl/sha.h>
 #include <sys/socket.h>
 
 #include "net.h"
 
+
+void encrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const plaintext)
+{
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	EVP_EncryptInit_ex(ctx, EVP_aes_256_wrap(), NULL, key, iv);
+
+	int len           = 0;
+	EVP_EncryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
+	int plaintext_len = len;
+
+	EVP_EncryptFinal_ex(ctx, plaintext + len, &len);
+	plaintext_len += len;
+
+	EVP_CIPHER_CTX_free(ctx);
+}
+
+void decrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const plaintext)
+{
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	EVP_DecryptInit_ex(ctx, EVP_aes_256_wrap(), NULL, key, iv);
+
+	int len           = 0;
+	EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
+	int plaintext_len = len;
+
+	EVP_DecryptFinal_ex(ctx, plaintext + len, &len);
+	plaintext_len += len;
+
+	EVP_CIPHER_CTX_free(ctx);
+}
 
 void help()
 {
@@ -85,18 +117,13 @@ int main(int argc, char *argv[])
 	SHA256_Update(&sha256, psk.data(), psk.size());
 	SHA256_Final(key, &sha256);
 
-        AES_KEY aes_key_e;
-	AES_set_encrypt_key(key, key_size * 8, &aes_key_e);  // 256 bits
-        AES_KEY aes_key_d;
-	AES_set_decrypt_key(key, key_size * 8, &aes_key_d);
-
 	for(;;) {
 		int rc = poll(fds, 2, -1);
 		if (rc <= 0)
 			return 3;
 
 		if (fds[0].revents) {
-			uint8_t ivec[key_size]   { };
+			uint8_t ivec[key_size]   { 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6 };
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc     = read(tun_parameters.value().fd, &buffer_in[2], sizeof(buffer_in) - 2);
@@ -107,7 +134,7 @@ int main(int argc, char *argv[])
 			buffer_in[0] = rc >> 8;
 			buffer_in[1] = rc;
 
-			AES_cbc_encrypt(buffer_in, buffer_out, rc + 2, &aes_key_e, ivec, AES_ENCRYPT);
+			encrypt_aes_256(buffer_in, rc + 2, key, ivec, buffer_out);
 
 			rc = (rc + key_size - 1) & ~(key_size - 1);
 			if (target_addr_len == 0)
@@ -121,7 +148,7 @@ int main(int argc, char *argv[])
 
 		if (fds[1].revents) {
 			target_addr_len = { sizeof target_addr };
-			uint8_t ivec[key_size]   { };
+			uint8_t ivec[key_size]   { 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6 };
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc = is_server ? recvfrom(udp_fd, buffer_in, sizeof buffer_in, 0,
@@ -134,7 +161,7 @@ int main(int argc, char *argv[])
 				printf("invalid packet size (%d / %d)\n", rc & ~(key_size - 1), rc);
 				continue;
 			}
-			AES_cbc_encrypt(buffer_in, buffer_out, rc, &aes_key_d, ivec, AES_DECRYPT);
+			decrypt_aes_256(buffer_in, rc, key, ivec, buffer_out);
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
 			if (real_len > sizeof buffer_out - 2) {
