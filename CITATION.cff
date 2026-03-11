@@ -1,12 +1,27 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+title: badtun
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
 authors:
-  - family-names: van Heusden
-    given-names: Folkert
-title: "badtun - very bad vpn software"
-version: 0.1
-identifiers:
-  - description: "The GitHub release URL of tag 0.1."
-    type: url
-    value: "https://github.com/folkertvanheusden/badtun/tree/v0.1"
-date-released: 2026-03-11
+  - given-names: Folkert
+    family-names: van Heusden
+    email: folkert@komputilo.nl
+repository-code: 'https://github.com/folkertvanheusden/badtun'
+abstract: >
+  This is VPN software (like openvpn, wireguard, ipsec,
+  etc).
+
+  Do not use.
+keywords:
+  - VPN
+  - C++
+  - Linux
+license: MIT
+commit: 4117e19b745724acfc0f38cd83938f435bea2496
+version: '0.1'
+date-released: '2026-03-11'
