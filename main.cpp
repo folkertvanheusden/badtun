@@ -77,16 +77,16 @@ int main(int argc, char *argv[])
 	if (!is_server)
 		target_addr_len = sizeof target_addr;
 
+	constexpr const int key_size = SHA256_DIGEST_LENGTH;
+
 	unsigned char key[SHA256_DIGEST_LENGTH] { };  // 32 bytes
 	SHA256_CTX sha256;
 	SHA256_Init(&sha256);
 	SHA256_Update(&sha256, psk.data(), psk.size());
 	SHA256_Final(key, &sha256);
 
-	constexpr const int key_size = 128 / 8;
-
         AES_KEY aes_key_e;
-	AES_set_encrypt_key(key, key_size * 8, &aes_key_e);  // AES does 128 bits
+	AES_set_encrypt_key(key, key_size * 8, &aes_key_e);  // 256 bits
         AES_KEY aes_key_d;
 	AES_set_decrypt_key(key, key_size * 8, &aes_key_d);
 
@@ -107,7 +107,8 @@ int main(int argc, char *argv[])
 			buffer_in[0] = rc >> 8;
 			buffer_in[1] = rc;
 
-			AES_cbc_encrypt(buffer_in, buffer_out, (rc + 2) * 8, &aes_key_e, ivec, AES_ENCRYPT);
+			for(size_t o=0; o<rc + 2; o += key_size)
+				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], key_size, &aes_key_e, ivec, AES_ENCRYPT);
 
 			rc = (rc + key_size - 1) & ~(key_size - 1);
 			if (target_addr_len == 0)
@@ -134,7 +135,8 @@ int main(int argc, char *argv[])
 				printf("invalid packet size (%d / %d)\n", rc & ~(key_size - 1), rc);
 				continue;
 			}
-			AES_cbc_encrypt(buffer_in, buffer_out, rc * 8, &aes_key_d, ivec, AES_DECRYPT);
+			for(size_t o=0; o<rc; o += key_size)
+				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], key_size, &aes_key_d, ivec, AES_DECRYPT);
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
 			if (real_len > sizeof buffer_out - 2) {
