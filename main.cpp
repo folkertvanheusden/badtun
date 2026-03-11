@@ -16,7 +16,7 @@
 void encrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const plaintext)
 {
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-	EVP_EncryptInit_ex(ctx, EVP_aes_256_wrap(), NULL, key, iv);
+	EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
 
 	int len           = 0;
 	EVP_EncryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
@@ -31,7 +31,7 @@ void encrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, 
 void decrypt_aes_256(const uint8_t *const ciphertext, const int ciphertext_len, const uint8_t *const key, const uint8_t *const iv, uint8_t *const plaintext)
 {
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-	EVP_DecryptInit_ex(ctx, EVP_aes_256_wrap(), NULL, key, iv);
+	EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
 
 	int len           = 0;
 	EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len);
@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
 			return 3;
 
 		if (fds[0].revents) {
-			uint8_t ivec[key_size]   { 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6 };
+			uint8_t ivec[key_size]   { };
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc     = read(tun_parameters.value().fd, &buffer_in[2], sizeof(buffer_in) - 2);
@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
 
 		if (fds[1].revents) {
 			target_addr_len = { sizeof target_addr };
-			uint8_t ivec[key_size]   { 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6 };
+			uint8_t ivec[key_size]   { };
 			uint8_t buffer_in [1600] { };
 			uint8_t buffer_out[1600] { };
 			int     rc = is_server ? recvfrom(udp_fd, buffer_in, sizeof buffer_in, 0,
