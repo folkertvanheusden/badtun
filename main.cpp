@@ -166,9 +166,11 @@ int main(int argc, char *argv[])
 			int out_len = 0;
 			decrypt_aes_256(buffer_in, rc, key, ivec, buffer_out, &out_len);
 
+#if !defined(NDEBUG)
 			for(int i=0; i<out_len; i++)
 				printf(" %c", buffer_out[i] > 32 && buffer_out[i] < 127 ? buffer_out[i] : '.');
 			printf("\n");
+#endif
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
 			if (real_len > sizeof buffer_out - 2) {
