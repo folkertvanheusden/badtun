@@ -107,8 +107,7 @@ int main(int argc, char *argv[])
 			buffer_in[0] = rc >> 8;
 			buffer_in[1] = rc;
 
-			for(size_t o=0; o<rc + 2; o += key_size)
-				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], key_size, &aes_key_e, ivec, AES_ENCRYPT);
+			AES_cbc_encrypt(buffer_in, buffer_out, rc + 2, &aes_key_e, ivec, AES_ENCRYPT);
 
 			rc = (rc + key_size - 1) & ~(key_size - 1);
 			if (target_addr_len == 0)
@@ -135,8 +134,7 @@ int main(int argc, char *argv[])
 				printf("invalid packet size (%d / %d)\n", rc & ~(key_size - 1), rc);
 				continue;
 			}
-			for(size_t o=0; o<rc; o += key_size)
-				AES_cbc_encrypt(&buffer_in[o], &buffer_out[o], key_size, &aes_key_d, ivec, AES_DECRYPT);
+			AES_cbc_encrypt(buffer_in, buffer_out, rc, &aes_key_d, ivec, AES_DECRYPT);
 
 			size_t  real_len = (buffer_out[0] << 8) | buffer_out[1];
 			if (real_len > sizeof buffer_out - 2) {
