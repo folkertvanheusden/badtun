@@ -190,9 +190,11 @@ void process_eth_event(EVP_CIPHER_CTX *const e_ctx, key_data *const key, const i
 	pd->original_length  = htons(rc);
 
 	int rc_out = 0;
-	encrypt_aes_256(e_ctx, buffer_in + sizeof(packet_header), rc + sizeof(data_header_unencrypted), key->key, key->iv, buffer_out, &rc_out, ph->tag);
+	encrypt_aes_256(e_ctx, buffer_in + sizeof(packet_header), rc + sizeof(data_header_unencrypted), key->key, key->iv, buffer_out + sizeof(packet_header), &rc_out, ph->tag);
 	key->data_n += rc_out;
 	rc_out += sizeof(packet_header);
+	
+	memcpy(buffer_out, buffer_in, sizeof(packet_header));
 
 	if (target_addr_len == 0)
 		fprintf(stderr, "Peer not seen yet, dropping packet\n");
