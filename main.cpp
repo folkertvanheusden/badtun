@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <openssl/aes.h>
 #include <openssl/crypto.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/modes.h>
 #include <openssl/sha.h>
@@ -94,6 +95,9 @@ bool decrypt_aes_256(EVP_CIPHER_CTX *const ctx, const uint8_t *const input, cons
 
 	int rc = EVP_DecryptFinal_ex(ctx, out + len, &len);
 	(*out_len) += len;
+
+	if (rc == 0)
+		fprintf(stderr, "EVP_DecryptFinal_ex failed\n");
 
 	return rc > 0;
 }
@@ -186,8 +190,9 @@ void process_eth_event(EVP_CIPHER_CTX *const e_ctx, key_data *const key, const i
 	pd->original_length  = htons(rc);
 
 	int rc_out = 0;
-	encrypt_aes_256(e_ctx, buffer_in, rc + meta_len, key->key, key->iv, buffer_out, &rc_out, ph->tag);
+	encrypt_aes_256(e_ctx, buffer_in + sizeof(packet_header), rc + sizeof(data_header_unencrypted), key->key, key->iv, buffer_out, &rc_out, ph->tag);
 	key->data_n += rc_out;
+	rc_out += sizeof(packet_header);
 
 	if (target_addr_len == 0)
 		fprintf(stderr, "Peer not seen yet, dropping packet\n");
@@ -222,34 +227,30 @@ void process_msg_event(EVP_CIPHER_CTX *const d_ctx, key_data *const key, const b
 
 	packet_header *ph = reinterpret_cast<packet_header *>(buffer_out);
 
-	if (decrypt_aes_256(d_ctx, buffer_in, rc, key->key, key->iv, buffer_out, &out_len, ph->tag) == false) {
-#if !defined(NDEBUG)
-		printf("packet is corrupted (by aes tag)\n");
-		for(size_t i=0; i<sizeof key->key; i++)
-			printf(" %02x", key->key[i]);
-		printf("\n");
-		for(size_t i=0; i<sizeof key->iv; i++)
-			printf(" %02x", key->iv[i]);
-		printf("\n");
-		return;
-#endif
-	}
-
-#if !defined(NDEBUG)
-	for(int i=0; i<out_len; i++)
-		printf(" %c", buffer_out[i] > 32 && buffer_out[i] < 127 ? buffer_out[i] : '.');
-	printf("\n");
-#endif
-
 	if (ph->packet_type == P_TYPE_DATA) {
-		if (size_t(out_len) < sizeof(packet_header) + sizeof(data_header_unencrypted)) {
+		size_t ph_len = sizeof(packet_header);
+
+		if (decrypt_aes_256(d_ctx, &buffer_in[ph_len], rc - ph_len, key->key, key->iv, buffer_out, &out_len, ph->tag) == false) {
+#if !defined(NDEBUG)
+			printf("packet is corrupted, type %d\n", ph->packet_type);
+			for(size_t i=0; i<sizeof key->key; i++)
+				printf(" %02x", key->key[i]);
+			printf("\n");
+			for(size_t i=0; i<sizeof key->iv; i++)
+				printf(" %02x", key->iv[i]);
+			printf("\n");
+			return;
+#endif
+		}
+
+		if (size_t(out_len) < sizeof(data_header_unencrypted)) {
 #if !defined(NDEBUG)
 			printf("packet is truncated\n");
 			return;
 #endif
 		}
 
-		data_header_unencrypted *pd = reinterpret_cast<data_header_unencrypted *>(buffer_out + sizeof(packet_header));
+		data_header_unencrypted *pd = reinterpret_cast<data_header_unencrypted *>(buffer_out);
 
 		if (pd->protocol_version != PROTOCOL_VERSION) {
 			fprintf(stderr, "Protocol mismatch\n");
