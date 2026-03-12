@@ -1,0 +1,2 @@
+- padding
+- make sure two packets with same contents produce different encrypted data
