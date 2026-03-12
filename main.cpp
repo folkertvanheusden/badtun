@@ -224,7 +224,13 @@ void process_msg_event(EVP_CIPHER_CTX *const d_ctx, key_data *const key, const b
 
 	if (decrypt_aes_256(d_ctx, buffer_in, rc, key->key, key->iv, buffer_out, &out_len, ph->tag) == false) {
 #if !defined(NDEBUG)
-		printf("packet is corrupted\n");
+		printf("packet is corrupted (by aes tag)\n");
+		for(size_t i=0; i<sizeof key->key; i++)
+			printf(" %02x", key->key[i]);
+		printf("\n");
+		for(size_t i=0; i<sizeof key->iv; i++)
+			printf(" %02x", key->iv[i]);
+		printf("\n");
 		return;
 #endif
 	}
@@ -289,7 +295,7 @@ void process_msg_event(EVP_CIPHER_CTX *const d_ctx, key_data *const key, const b
 
 			key->version = mr->payload.key_version;
 #if !defined(NDEBUG)
-			printf("New key version: %d\n", key->payload.key_version);
+			printf("New key version: %d\n", key->version);
 #endif
 			memcpy(key->key, mr->payload.new_key, key_size);
 			memcpy(key->iv , mr->payload.new_iv , 12      );
