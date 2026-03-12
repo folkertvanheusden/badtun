@@ -104,12 +104,15 @@ int main(int argc, char *argv[])
 		target_addr_len = sizeof target_addr;
 
 	constexpr const int key_size = SHA256_DIGEST_LENGTH;
+	static_assert(key_size == 32);
 
 	unsigned char key[key_size] { };  // 32 bytes
-	SHA256_CTX sha256;
-	SHA256_Init(&sha256);
-	SHA256_Update(&sha256, psk.data(), psk.size());
-	SHA256_Final(key, &sha256);
+	EVP_MD_CTX   *mdctx = EVP_MD_CTX_create();
+	const EVP_MD *md    = EVP_MD_fetch(nullptr, "SHA256", nullptr);
+	EVP_DigestInit_ex(mdctx, md, nullptr);
+	EVP_DigestUpdate(mdctx, psk.data(), psk.size());
+	EVP_DigestFinal_ex(mdctx, key, 0);
+	EVP_MD_CTX_destroy(mdctx);
 
 	EVP_CIPHER_CTX *e_ctx = EVP_CIPHER_CTX_new();
 	EVP_CIPHER_CTX *d_ctx = EVP_CIPHER_CTX_new();
