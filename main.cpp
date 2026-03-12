@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <poll.h>
 #include <unistd.h>
+#include <vector>
 #include <arpa/inet.h>
 #include <openssl/aes.h>
 #include <openssl/crypto.h>
@@ -17,10 +18,12 @@
 constexpr const int key_size = SHA256_DIGEST_LENGTH;
 static_assert(key_size == 32);
 
-#define PROTOCOL_VERSION 1
-#define P_TYPE_DATA      0
-#define P_TYPE_META      1
-#define M_TYPE_REKEY     0
+#define PROTOCOL_VERSION   1
+#define P_TYPE_DATA        0
+#define P_TYPE_META        1
+#define M_TYPE_REKEY       0
+#define M_TYPE_RESEND_KEY  1
+#define REKEY_THRESHOLD    (16 * 1024 * 1024)
 
 #pragma pack(push, 1)
 struct packet_header {
@@ -35,9 +38,12 @@ struct meta_header {
 
 struct meta_rekey {
 	meta_header m;
-	uint8_t protocol_version;
-	uint8_t key_version;  // wraps around
-	uint8_t new_key[key_size];
+	struct {
+		uint8_t   protocol_version;
+		uint8_t   key_version;  // wraps around
+		uint8_t   new_key[key_size];
+		uint8_t   new_iv[12];
+	} payload;
 };
 
 struct data_header {
@@ -57,6 +63,7 @@ struct key_data {
 	uint8_t  iv [12];
 	uint8_t  version;
 	uint32_t data_n;
+	std::vector<uint8_t> last_announcement;
 };
 
 constexpr const size_t meta_len { sizeof(packet_header) + sizeof(data_header_unencrypted) };
@@ -91,12 +98,61 @@ bool decrypt_aes_256(EVP_CIPHER_CTX *const ctx, const uint8_t *const input, cons
 	return rc > 0;
 }
 
-void transmit_key(EVP_CIPHER_CTX *const e_ctx, key_data *const key, const int udp_fd, const sockaddr *const target_addr, const socklen_t target_addr_len)
+void generate_new_key(key_data *const key)
 {
-	meta_header m;
-	uint8_t protocol_version;
-	uint8_t key_version;  // wraps around
-	uint8_t new_key[key_size];
+	key->version++;
+
+	if (getrandom(key->key, sizeof(key->key), 0) == -1 || getrandom(key->iv,  sizeof(key->iv ), 0) == -1) {
+		fprintf(stderr, "getrandom failed: %s\n", strerror(errno));
+		exit(9);
+	}
+}
+
+std::vector<uint8_t> generate_key_message(EVP_CIPHER_CTX *const e_ctx, key_data *const key)
+{
+	meta_rekey output;
+	output.m.p.packet_type          = P_TYPE_META;
+	// output.m.p.tag;  // see below
+	output.m.type                   = M_TYPE_REKEY;
+	output.payload.protocol_version = PROTOCOL_VERSION;
+	output.payload.key_version      = key->version;
+	memcpy(output.payload.new_key, key->key, sizeof(key->key));
+	memcpy(output.payload.new_iv,  key->iv,  sizeof(key->iv ));
+
+	uint8_t buffer_out[sizeof output.payload] { };
+
+	int rc_out = 0;
+	encrypt_aes_256(e_ctx, reinterpret_cast<uint8_t *>(&output.payload), sizeof output.payload, key->key, key->iv, buffer_out, &rc_out, output.m.p.tag);
+	key->data_n += rc_out;
+
+	return std::vector<uint8_t>(&buffer_out[0], &buffer_out[sizeof buffer_out]);
+}
+
+void request_key(const int fd, const sockaddr *const target_addr, const socklen_t target_addr_len)
+{
+	meta_header mh { };
+	mh.p.packet_type = P_TYPE_META;
+	mh.type          = M_TYPE_RESEND_KEY;
+
+	if (sendto(fd, reinterpret_cast<uint8_t *>(&mh), sizeof mh, 0, target_addr, target_addr_len) == -1)
+		fprintf(stderr, "Failed transmitting key request packet: %s\n", strerror(errno));
+}
+
+bool retransmit_key(const int udp_fd, key_data *const key, const sockaddr *const target_addr, const socklen_t target_addr_len)
+{
+	if (key->last_announcement.empty()) {
+#if !defined(NDEBUG)
+		printf("Did not announce a new key\n");
+#endif
+		return false;
+	}
+
+	if (sendto(udp_fd, key->last_announcement.data(), key->last_announcement.size(), 0, target_addr, target_addr_len) == -1) {
+		fprintf(stderr, "Failed transmitting packet: %s\n", strerror(errno));
+		return false;
+	}
+
+	return true;
 }
 
 void process_eth_event(EVP_CIPHER_CTX *const e_ctx, key_data *const key, const int eth_fd, const int udp_fd,
@@ -111,7 +167,16 @@ void process_eth_event(EVP_CIPHER_CTX *const e_ctx, key_data *const key, const i
 	if (rc == -1)
 		exit(4);
 
-	// TODO send rekey when data amount reached threshold
+	// send rekey when data amount reached threshold
+	if (key->data_n >= REKEY_THRESHOLD) {
+		generate_new_key(key);
+#if !defined(NDEBUG)
+		printf("re-key %d\n", key->version);
+#endif
+		key->last_announcement = generate_key_message(e_ctx, key);
+		if (retransmit_key(udp_fd, key, target_addr, target_addr_len) == true)
+			key->data_n -= REKEY_THRESHOLD;
+	}
 
 	packet_header           *ph = reinterpret_cast<packet_header *>          (buffer_in);
 	data_header_unencrypted *pd = reinterpret_cast<data_header_unencrypted *>(buffer_in + sizeof(packet_header));
@@ -122,6 +187,7 @@ void process_eth_event(EVP_CIPHER_CTX *const e_ctx, key_data *const key, const i
 
 	int rc_out = 0;
 	encrypt_aes_256(e_ctx, buffer_in, rc + meta_len, key->key, key->iv, buffer_out, &rc_out, ph->tag);
+	key->data_n += rc_out;
 
 	if (target_addr_len == 0)
 		fprintf(stderr, "Peer not seen yet, dropping packet\n");
@@ -186,7 +252,7 @@ void process_msg_event(EVP_CIPHER_CTX *const d_ctx, key_data *const key, const b
 
 		if (pd->key_version != key->version) {
 			fprintf(stderr, "Key version mismatch\n");
-			// TODO ask for new key
+			request_key(udp_fd, target_addr, *target_addr_len);
 			return;
 		}
 
@@ -216,19 +282,20 @@ void process_msg_event(EVP_CIPHER_CTX *const d_ctx, key_data *const key, const b
 			}
 
 			meta_rekey *mr = reinterpret_cast<meta_rekey *>(buffer_out + sizeof(packet_header));
-			if (mr->protocol_version != PROTOCOL_VERSION) {
+			if (mr->payload.protocol_version != PROTOCOL_VERSION) {
 				fprintf(stderr, "Protocol mismatch\n");
 				return;
 			}
 
-			key->version = mr->key_version;
+			key->version = mr->payload.key_version;
 #if !defined(NDEBUG)
-			printf("New key version: %d\n", key->key_version);
+			printf("New key version: %d\n", key->payload.key_version);
 #endif
-			memcpy(key->key, mr->new_key, key_size);
+			memcpy(key->key, mr->payload.new_key, key_size);
+			memcpy(key->iv , mr->payload.new_iv , 12      );
 		}
 		else {
-			// TODO resend key encrypted with before_rekey_e_key
+			retransmit_key(udp_fd, key, target_addr, *target_addr_len);
 #if !defined(NDEBUG)
 			printf("Invalid meta packet type\n");
 #endif
